@@ -101,6 +101,7 @@ contract FarmETHRouter is OwnableUpgradeSafe {
                 address(this),
                 ""
             );
+            outnerd = IERC20(_nerdToken).balanceOf(address(this));
         }
 
         {
@@ -128,6 +129,7 @@ contract FarmETHRouter is OwnableUpgradeSafe {
                 address(this),
                 ""
             );
+            outOther = IERC20(otherToken).balanceOf(address(this));
         }
 
         _addLiquidityForPool(
@@ -171,6 +173,7 @@ contract FarmETHRouter is OwnableUpgradeSafe {
             address(this),
             ""
         );
+        outnerd = IERC20(_nerdToken).balanceOf(address(this));
         _addLiquidityPool0(outnerd, buyAmount, to, autoStake);
     }
 

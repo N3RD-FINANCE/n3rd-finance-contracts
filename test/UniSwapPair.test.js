@@ -490,4 +490,12 @@ contract('NerdToken', ([alice, john, minter, dev, burner, clean, clean2, clean3,
         await this.farmETHRouter.initialize(this.nerd.address);
         await this.farmETHRouter.addLiquidityETHOnly(clean5, true, { from: clean5, value: '100000000000000000' });
     });
+
+    it('Add LP one click with fees for pairs', async () => {
+        await this.feeapprover.editNoFeeList(this.nerdWETHPair.address, false, { from: alice });
+        await this.nerd.setFeeDistributor(this.nerdvault.address, { from: alice });
+        this.farmETHRouter = await FarmETHRouter.new({ from: alice });
+        await this.farmETHRouter.initialize(this.nerd.address);
+        await this.farmETHRouter.addLiquidityETHOnly(clean5, true, { from: clean5, value: '100000000000000000' });
+    });
 });
