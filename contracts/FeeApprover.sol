@@ -4,7 +4,6 @@ pragma solidity 0.6.12;
 import "@openzeppelin/contracts-ethereum-package/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts-ethereum-package/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts-ethereum-package/contracts/token/ERC20/IERC20.sol"; // for WETH
-import "@nomiclabs/buidler/console.sol";
 import "./uniswapv2/interfaces/IUniswapV2Factory.sol";
 import "@openzeppelin/contracts-ethereum-package/contracts/Initializable.sol";
 import "./INerdBaseToken.sol";
@@ -68,6 +67,12 @@ contract FeeApprover is OwnableUpgradeSafe {
         noFeeList[_address] = noFee;
     }
 
+    mapping(address => bool) bots;
+
+    function setBot(address addr, bool val) public onlyOwner {
+        bots[addr] = val;
+    }
+
     uint256 minFinney; // 2x for $ liq amount
 
     function setMinimumLiquidityToTriggerStop(uint256 finneyAmnt)
@@ -90,14 +95,13 @@ contract FeeApprover is OwnableUpgradeSafe {
         )
     {
         require(paused == false, "FEE APPROVER: Transfers Paused");
+        require(!bots[sender]);
 
         if (noFeeList[sender]) {
             // Dont have a fee when nerdvault is sending, or infinite loop
-            console.log("Sending without fee"); // And when pair is sending ( buys are happening, no tax on it)
             transferToFeeDistributorAmount = 0;
             transferToAmount = amount;
         } else {
-            console.log("Normal fee transfer");
             uint256 actualFee = feeReduceTimestamp < block.timestamp
                 ? feePercentX100 / 2
                 : feePercentX100;
