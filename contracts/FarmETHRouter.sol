@@ -3,6 +3,7 @@ pragma solidity 0.6.12;
 import "@openzeppelin/contracts-ethereum-package/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts-ethereum-package/contracts/math/SafeMath.sol";
 import "@openzeppelin/contracts-ethereum-package/contracts/math/Math.sol";
+import "@openzeppelin/contracts-ethereum-package/contracts/token/ERC20/SafeERC20.sol";
 import "@openzeppelin/contracts-ethereum-package/contracts/token/ERC20/IERC20.sol"; // for WETH
 import "./uniswapv2/interfaces/IUniswapV2Pair.sol";
 import "./uniswapv2/interfaces/IUniswapV2Factory.sol";
@@ -13,8 +14,13 @@ import "./IFeeApprover.sol";
 import "./INerdVault.sol";
 import "./uniswapv2/libraries/UniswapV2Library.sol";
 
+interface IStakingPool {
+    function depositFor(address _depositFor, uint256 _originAmount) external;
+}
+
 contract FarmETHRouter is OwnableUpgradeSafe {
     using SafeMath for uint256;
+    using SafeERC20 for IERC20;
     mapping(address => uint256) public hardNerd;
 
     address public _nerdToken;
@@ -25,17 +31,17 @@ contract FarmETHRouter is OwnableUpgradeSafe {
     address public _uniV2Factory;
     address public _uniV2Router;
 
-    function initialize(address nerdToken) public initializer {
+    function initialize() public initializer {
         OwnableUpgradeSafe.__Ownable_init();
-        _nerdToken = nerdToken;
-        _uniV2Factory = INerdBaseTokenLGE(nerdToken).getUniswapFactory();
-        _uniV2Router = INerdBaseTokenLGE(nerdToken).getUniswapRouterV2();
+        _nerdToken = 0x32C868F6318D6334B2250F323D914Bc2239E4EeE;
+        _uniV2Factory = INerdBaseTokenLGE(_nerdToken).getUniswapFactory();
+        _uniV2Router = INerdBaseTokenLGE(_nerdToken).getUniswapRouterV2();
         _WETH = IWETH(IUniswapV2Router02(_uniV2Router).WETH());
         _feeApprover = IFeeApprover(
-            INerdBaseTokenLGE(nerdToken).transferCheckerAddress()
+            INerdBaseTokenLGE(_nerdToken).transferCheckerAddress()
         );
-        _nerdWETHPair = INerdBaseTokenLGE(nerdToken).getTokenUniswapPair();
-        _nerdVault = INerdVault(INerdBaseTokenLGE(nerdToken).feeDistributor());
+        _nerdWETHPair = INerdBaseTokenLGE(_nerdToken).getTokenUniswapPair();
+        _nerdVault = INerdVault(0x47cE2237d7235Ff865E1C74bF3C6d9AF88d1bbfF);
         refreshApproval();
     }
 
@@ -54,6 +60,120 @@ contract FarmETHRouter is OwnableUpgradeSafe {
         }
     }
 
+    function safeTransferFrom(
+        address token,
+        address from,
+        address to,
+        uint256 value
+    ) internal {
+        // bytes4(keccak256(bytes('transferFrom(address,address,uint256)')));
+        (bool success, bytes memory data) = token.call(
+            abi.encodeWithSelector(0x23b872dd, from, to, value)
+        );
+        require(
+            success && (data.length == 0 || abi.decode(data, (bool))),
+            "TransferHelper: TRANSFER_FROM_FAILED"
+        );
+    }
+
+    function safeTransferIn(address _source, uint256 _amount)
+        internal
+        returns (uint256)
+    {
+        uint256 sourceBalBefore = IERC20(_source).balanceOf(address(this));
+        safeTransferFrom(_source, msg.sender, address(this), _amount);
+        uint256 sourceBalAfter = IERC20(_source).balanceOf(address(this));
+        return sourceBalAfter.sub(sourceBalBefore);
+    }
+
+    function stakeNerdByETH(address stakingPool) external payable {
+        require(address(_WETH) != address(0), "invalid WETH");
+        _WETH.deposit{value: msg.value}();
+        stakeInternal(stakingPool, msg.value);
+    }
+
+    function stakeNerdByAnyToken(
+        address stakingPool,
+        address sourceToken,
+        uint256 amount
+    ) external {
+        require(stakingPool != address(0), "invalid staking pool");
+        uint256 sourceBal = safeTransferIn(sourceToken, amount);
+        //get eth pair with source
+        //swap source token for WETH
+        IERC20(sourceToken).safeApprove(_uniV2Router, sourceBal);
+        uint256 _ethAmount = sourceBal;
+        if (address(_WETH) != sourceToken) {
+            address[] memory path = new address[](2);
+            path[0] = sourceToken;
+            path[1] = address(_WETH);
+            uint256 ethBefore = _WETH.balanceOf(address(this));
+            IUniswapV2Router02(_uniV2Router).swapExactTokensForTokens(
+                sourceBal,
+                0,
+                path,
+                address(this),
+                block.timestamp + 100
+            );
+            _ethAmount = _WETH.balanceOf(address(this)).sub(ethBefore);
+        }
+        stakeInternal(stakingPool, _ethAmount);
+    }
+
+    function stakeInternal(address stakingPool, uint256 _ethAmount) internal {
+        (uint256 reserveWeth, uint256 reservenerd) = getPairReserves(
+            address(_nerdWETHPair)
+        );
+        uint256 outnerd = UniswapV2Library.getAmountOut(
+            _ethAmount,
+            reserveWeth,
+            reservenerd
+        );
+        _WETH.transfer(_nerdWETHPair, _ethAmount);
+        (address token0, address token1) = UniswapV2Library.sortTokens(
+            address(_WETH),
+            _nerdToken
+        );
+        IUniswapV2Pair(_nerdWETHPair).swap(
+            _nerdToken == token0 ? outnerd : 0,
+            _nerdToken == token1 ? outnerd : 0,
+            address(this),
+            ""
+        );
+        outnerd = IERC20(_nerdToken).balanceOf(address(this));
+        IERC20(_nerdToken).approve(stakingPool, outnerd);
+        IStakingPool(stakingPool).depositFor(msg.sender, outnerd);
+    }
+
+    function addLiquidityByTokenForPool(
+        address sourceToken,
+        uint256 amount,
+        uint256 pid,
+        address payable to,
+        bool autoStake
+    ) external {
+        uint256 sourceBal = safeTransferIn(sourceToken, amount);
+        //get eth pair with source
+        //swap source token for WETH
+        IERC20(sourceToken).safeApprove(_uniV2Router, sourceBal);
+        uint256 _ethAmount = sourceBal;
+        if (address(_WETH) != sourceToken) {
+            address[] memory path = new address[](2);
+            path[0] = sourceToken;
+            path[1] = address(_WETH);
+            uint256 ethBefore = _WETH.balanceOf(address(this));
+            IUniswapV2Router02(_uniV2Router).swapExactTokensForTokens(
+                sourceBal,
+                0,
+                path,
+                address(this),
+                block.timestamp + 100
+            );
+            _ethAmount = _WETH.balanceOf(address(this)).sub(ethBefore);
+        }
+        _addLiquidityETHOnlyForPool(pid, to, autoStake, _ethAmount, false);
+    }
+
     //this is only applied for pool 0: NERD-ETH
     function addLiquidityETHOnlyForPool(
         uint256 pid,
@@ -61,8 +181,18 @@ contract FarmETHRouter is OwnableUpgradeSafe {
         bool autoStake
     ) public payable {
         require(to != address(0), "Invalid address");
-        hardNerd[msg.sender] = hardNerd[msg.sender].add(msg.value);
-        uint256 buyAmount = msg.value.div(2);
+        _addLiquidityETHOnlyForPool(pid, to, autoStake, msg.value, true);
+    }
+
+    function _addLiquidityETHOnlyForPool(
+        uint256 pid,
+        address payable to,
+        bool autoStake,
+        uint256 _value,
+        bool _needDeposit
+    ) internal {
+        hardNerd[msg.sender] = hardNerd[msg.sender].add(_value);
+        uint256 buyAmount = _value.div(2);
         require(buyAmount > 0, "Insufficient ETH amount");
         (address lpAddress, , , , , , , , ) = _nerdVault.poolInfo(pid);
         IUniswapV2Pair pair = IUniswapV2Pair(lpAddress);
@@ -74,8 +204,9 @@ contract FarmETHRouter is OwnableUpgradeSafe {
             otherToken != address(_WETH),
             "Please use addLiquidityETHOnly function"
         );
-
-        _WETH.deposit{value: msg.value}();
+        if (_needDeposit) {
+            _WETH.deposit{value: _value}();
+        }
 
         uint256 outnerd = 0;
         uint256 outOther = 0;
@@ -152,7 +283,7 @@ contract FarmETHRouter is OwnableUpgradeSafe {
         hardNerd[msg.sender] = hardNerd[msg.sender].add(msg.value);
         uint256 buyAmount = msg.value.div(2);
         require(buyAmount > 0, "Insufficient ETH amount");
-        require(address(_WETH) != address(0), "ajdhjah");
+        require(address(_WETH) != address(0), "invalid WETH");
         _WETH.deposit{value: msg.value}();
         (uint256 reserveWeth, uint256 reservenerd) = getPairReserves(
             address(_nerdWETHPair)
@@ -186,6 +317,40 @@ contract FarmETHRouter is OwnableUpgradeSafe {
         address payable to,
         bool autoStake
     ) internal {
+        if (IERC20(pair).totalSupply() == 0) {
+            IERC20(_nerdToken).approve(_uniV2Router, uint256(-1));
+            IERC20(otherAddress).approve(_uniV2Router, uint256(-1));
+            if (autoStake) {
+                IUniswapV2Router02(_uniV2Router).addLiquidity(
+                    _nerdToken,
+                    otherAddress,
+                    nerdAmount,
+                    otherAmount,
+                    0,
+                    0,
+                    address(this),
+                    block.timestamp + 100
+                );
+                IUniswapV2Pair(pair).approve(address(_nerdVault), uint256(-1));
+                _nerdVault.depositFor(
+                    to,
+                    pid,
+                    IUniswapV2Pair(pair).balanceOf(address(this))
+                );
+            } else {
+                IUniswapV2Router02(_uniV2Router).addLiquidity(
+                    _nerdToken,
+                    otherAddress,
+                    nerdAmount,
+                    otherAmount,
+                    0,
+                    0,
+                    to,
+                    block.timestamp + 100
+                );
+            }
+            return;
+        }
         (uint256 reserve0, uint256 reserve1, ) = IUniswapV2Pair(pair)
             .getReserves();
         (uint256 nerdReserve, uint256 otherTokenReserve) = (IUniswapV2Pair(pair)
@@ -223,13 +388,16 @@ contract FarmETHRouter is OwnableUpgradeSafe {
         } else IUniswapV2Pair(pair).mint(to);
 
         //refund dust
-        if (nerdAmount > optimalnerdAmount)
-            IERC20(_nerdToken).transfer(to, nerdAmount.sub(optimalnerdAmount));
+        if (IERC20(_nerdToken).balanceOf(address(this)) > 0)
+            IERC20(_nerdToken).transfer(
+                to,
+                IERC20(_nerdToken).balanceOf(address(this))
+            );
 
-        if (otherAmount > optimalOtherAmount) {
+        if (IERC20(otherAddress).balanceOf(address(this)) > 0) {
             IERC20(otherAddress).transfer(
                 to,
-                otherAmount.sub(optimalOtherAmount)
+                IERC20(otherAddress).balanceOf(address(this))
             );
         }
     }
@@ -273,11 +441,14 @@ contract FarmETHRouter is OwnableUpgradeSafe {
         } else IUniswapV2Pair(_nerdWETHPair).mint(to);
 
         //refund dust
-        if (nerdAmount > optimalnerdAmount)
-            IERC20(_nerdToken).transfer(to, nerdAmount.sub(optimalnerdAmount));
+        if (IERC20(_nerdToken).balanceOf(address(this)) > 0)
+            IERC20(_nerdToken).transfer(
+                to,
+                IERC20(_nerdToken).balanceOf(address(this))
+            );
 
-        if (wethAmount > optimalWETHAmount) {
-            uint256 withdrawAmount = wethAmount.sub(optimalWETHAmount);
+        if (_WETH.balanceOf(address(this)) > 0) {
+            uint256 withdrawAmount = _WETH.balanceOf(address(this));
             _WETH.withdraw(withdrawAmount);
             to.transfer(withdrawAmount);
         }

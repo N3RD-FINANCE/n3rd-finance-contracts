@@ -18,10 +18,10 @@ const deploy = async () => {
 
     const farmETHRouterContract = await new web3.eth.Contract(FarmETHRouter.abi)
         .deploy({ data: FarmETHRouter.bytecode })
-        .send({ gas: "8000000", from: mainAccount });
+        .send({ gas: "6000000", from: mainAccount });
 
     //This will display the address to which your contract was deployed
     console.log("Contract farmETHRouterContract deployed to: ", farmETHRouterContract.options.address);
-    await farmETHRouterContract.methods.initialize(nerdAddress).send({from: mainAccount});
+    await farmETHRouterContract.methods.initialize(nerdAddress).send({ from: mainAccount });
 };
 deploy();

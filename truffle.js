@@ -1,5 +1,6 @@
 require("dotenv").config();
 const LedgerWalletProvider = require("truffle-ledger-provider");
+const PrivateKeyProvider = require("truffle-privatekey-provider");
 
 console.log(process.env.INFURA_APIKEY);
 
@@ -31,6 +32,8 @@ const mainnetProvider = new LedgerWalletProvider(
   `https://mainnet.infura.io/v3/${process.env.INFURA_APIKEY}`
 );
 
+const forkMainnetProvider = new PrivateKeyProvider(process.env.PRIVATE_KEY_FORK_MAINNET, "http://localhost:7545");
+
 
 module.exports = {
   networks: {
@@ -53,6 +56,12 @@ module.exports = {
       gas: 9999999,
       gasPrice: 100000000000,
     },
+    forkmainnet: {
+      provider: forkMainnetProvider,
+      network_id: "*",
+      gas: 6000000,
+      gasPrice: 100000000000,
+    }
   },
   compilers: {
     solc: {
@@ -66,5 +75,5 @@ module.exports = {
         evmVersion: "istanbul",
       },
     },
-  },
-};
+  }
+}

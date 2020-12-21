@@ -5,6 +5,7 @@ const NerdToken = artifacts.require('Nerd');
 const { expectRevert, time } = require('@openzeppelin/test-helpers');
 const { inTransaction } = require('@openzeppelin/test-helpers/src/expectEvent');
 const NerdVault = artifacts.require('NerdVault');
+const IERC20 = artifacts.require('IERC20');
 const WETH9 = artifacts.require('WETH9');
 const UniswapV2Pair = artifacts.require('UniswapV2Pair');
 const UniswapV2Factory = artifacts.require('UniswapV2Factory');
@@ -230,6 +231,7 @@ contract('NerdToken', ([alice, john, minter, dev, burner, clean, clean2, clean3,
     });
 
     it('Releasable tokens with time lock and penalty is correctly computed', async () => {
+        await this.feeapprover.editNoFeeList(this.nerdWETHPair.address, false, { from: alice });
         await this.nerd.setFeeDistributor(this.nerdvault.address, { from: alice });
         let releasableLPMinter = (await this.nerdvault.computeReleasableLP(0, minter)).valueOf().toString();
         let releasableLPMinter2 = (await this.nerdvault.computeReleasableLP(0, minter2)).valueOf().toString();
@@ -267,6 +269,7 @@ contract('NerdToken', ([alice, john, minter, dev, burner, clean, clean2, clean3,
         //withdraw LP
         let lpBalBeforeMinter = (await this.nerdWETHPair.balanceOf(minter)).valueOf().toString();
         let pendingRewardsBefore = (await this.nerdvault.pendingRewards()).valueOf().toString();
+        await this.feeapprover.editNoFeeList(this.nerdWETHPair.address, false, { from: alice });
 
         await this.nerdvault.withdraw(0, userAmountMinter, { from: minter });
 
@@ -497,5 +500,35 @@ contract('NerdToken', ([alice, john, minter, dev, burner, clean, clean2, clean3,
         this.farmETHRouter = await FarmETHRouter.new({ from: alice });
         await this.farmETHRouter.initialize(this.nerd.address);
         await this.farmETHRouter.addLiquidityETHOnly(clean5, true, { from: clean5, value: '100000000000000000' });
+    });
+
+
+    it("Mainnet testing: Should be able to withdraw", async () => {
+        if (testconfig.network != 'local') {
+            let routerAddress = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D";
+            let factoryAddress = "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f"
+            let wethAddress = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"
+            this.weth = await WETH9.at(wethAddress);
+            this.factory = await UniswapV2Factory.at(factoryAddress);
+            this.router = await UniswapV2Router02.at(routerAddress);
+            this.nerd = await NerdToken.at("0x32C868F6318D6334B2250F323D914Bc2239E4EeE");
+            this.farmETHRouter = await FarmETHRouter.at("0x08E5947deC6fb7F0bcC7B2660BFd855BcCc71FaF");
+            this.nerdWETHPair = await UniswapV2Pair.at("0x3473C92d47A2226B1503dFe7C929b2aE454F6b22");
+
+            this.feeapprover = await FeeApprover.at("0x88Bc5f045b9A910A467E45468dD63c82506A9536");
+            this.nerdvault = await NerdVault.at("0x47cE2237d7235Ff865E1C74bF3C6d9AF88d1bbfF");
+            let vaultLPBefore = (await this.nerdWETHPair.balanceOf(this.nerdvault.address)).valueOf().toString();
+            //let releasable = (await this.nerdvault.computeReleasableLP(0, self)).valueOf().toString();
+            let remainingLPBefore = (await this.nerdvault.getRemainingLP(0, clean3)).valueOf().toString();
+            await this.farmETHRouter.addLiquidityETHOnly(clean3, true, { from: clean3, value: '100000000000000000' });
+            let vaultLPAfter = (await this.nerdWETHPair.balanceOf(this.nerdvault.address)).valueOf().toString();
+            assert.notEqual(vaultLPBefore, vaultLPAfter);
+            let remainingLPAfter = (await this.nerdvault.getRemainingLP(0, clean3)).valueOf().toString();
+            assert.notEqual(remainingLPBefore, remainingLPAfter);
+
+            await expectRevert.unspecified(this.nerdvault.withdraw(0, '10', { from: clean3 }));
+            await time.increase(29 * 86400);
+            await this.nerdvault.withdraw(0, '1000000', { from: clean3 });
+        }
     });
 });

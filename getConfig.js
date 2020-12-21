@@ -10,7 +10,7 @@ const GetConfig = {
             return process.env.PRIVATE_KEY_DEV;
         } else if (network == "test") {
             return process.env.PRIVATE_KEY_TEST;
-        } else {
+        } else if (network == "main") {
             return process.env.PRIVATE_KEY_PROD;
         }
     },
@@ -19,15 +19,15 @@ const GetConfig = {
             return process.env.WEB3URL_DEV;
         } else if (network == "test") {
             return process.env.WEB3URL_TEST;
-        } else {
+        } else if (network == "main") {
             return process.env.WEB3URL_PROD;
         }
     },
     getProvider: function () {
         if (network == "dev") {
-            new PrivateKeyProvider(GetConfig.getPrivateKey(), GetConfig.getWeb3URL());
-        }
-        return new PrivateKeyProvider(GetConfig.getPrivateKey(), GetConfig.getWeb3URL());
+            return new PrivateKeyProvider(GetConfig.getPrivateKey(), GetConfig.getWeb3URL());
+        } else if (network == "main")
+            return new PrivateKeyProvider(GetConfig.getPrivateKey(), GetConfig.getWeb3URL());
     },
     isDevNet: function () {
         return network == "dev";
@@ -37,7 +37,7 @@ const GetConfig = {
             return "900";
         } else if (network == "test") {
             return "42400";
-        } else {
+        } else if (network == "main") {
             return "0";
         }
     },
@@ -46,7 +46,7 @@ const GetConfig = {
             return process.env.DEV_ADDRESS_DEV;
         } else if (network == "test") {
             return process.env.DEV_ADDRESS_TEST;
-        } else {
+        } else if (network == "main") {
             return process.env.DEV_ADDRESS_PROD;
         }
     },
@@ -55,7 +55,7 @@ const GetConfig = {
             return process.env.APPROVER_ADDRESS_DEV;
         } else if (network == "test") {
             return process.env.APPROVER_ADDRESS_TEST;
-        } else {
+        } else if (network == "main") {
             return process.env.APPROVER_ADDRESS_PROD;
         }
     },
