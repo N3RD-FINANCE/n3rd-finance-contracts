@@ -19,6 +19,7 @@ const config = {
     usdcAddress: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
     routerAddress: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
     factoryAddress: "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f",
+    snxAddress: "0xc011a73ee8576fb46f5e1c5751ca3b9fe0af2a6f",
     readUniswap: async function (t) {
         t.weth = await WETH9.at(config.wethAddress);
         t.factory = await UniswapV2Factory.at(config.factoryAddress);
@@ -31,9 +32,10 @@ const config = {
         t.dai = await IERC20.at(config.daiAddress);
         t.usdc = await IERC20.at(config.usdcAddress);
         t.nerdWETHPair = await UniswapV2Pair.at("0x3473C92d47A2226B1503dFe7C929b2aE454F6b22");
+        t.snx = await IERC20.at(config.snxAddress);
     },
     transferOwnership: async function (to) {
-        let web3 = await new Web3(new PrivateKeyProvider(process.env.PRIVATE_KEY_PROD, "http://localhost:7545"));
+        let web3 = await new Web3(new PrivateKeyProvider(process.env.PRIVATE_KEY_PROD, "http://localhost:8545"));
         let address = web3.currentProvider.address;
         let nerdVault = await new web3.eth.Contract(NerdVault.abi, "0x47cE2237d7235Ff865E1C74bF3C6d9AF88d1bbfF");
         await nerdVault.methods.transferOwnership(to).send({ from: address });

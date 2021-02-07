@@ -32,7 +32,6 @@ const mainnetProvider = new LedgerWalletProvider(
   `https://mainnet.infura.io/v3/${process.env.INFURA_APIKEY}`
 );
 
-const forkMainnetProvider = new PrivateKeyProvider(process.env.PRIVATE_KEY_FORK_MAINNET, "http://localhost:7545");
 
 
 module.exports = {
@@ -40,7 +39,7 @@ module.exports = {
     development: {
       protocol: "http",
       host: "localhost",
-      port: 7545,
+      port: 8545,
       gas: 6500000,
       gasPrice: 5e9,
       network_id: "*",
@@ -56,12 +55,6 @@ module.exports = {
       gas: 9999999,
       gasPrice: 100000000000,
     },
-    forkmainnet: {
-      provider: forkMainnetProvider,
-      network_id: "*",
-      gas: 6000000,
-      gasPrice: 100000000000,
-    }
   },
   compilers: {
     solc: {
